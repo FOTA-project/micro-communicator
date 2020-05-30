@@ -1,16 +1,19 @@
-/* 1-send req number
- 2-send cmd number  //flash new app
- 3-send data
-
- */
+/* includes */
 #include <stdio.h>
-//#include <stdlib.h>
 #include <windows.h>
-
 #include "STD_TYPES.h"
 #include "protocol.h"
-#include "APP.h"
 
+
+/* macros */
+#define INITIAL_STATE     0
+#define	WRITING_SECTOR    1
+#define	TEXT_SECTION      0
+#define	DATA_SECTION      1  
+#define	FLASH_DONE        2
+
+
+/* global variables */
 u32 Start_Address;
 u32 APP_SIZE;
 u32 ENTRY_POINT;
@@ -22,35 +25,39 @@ u32 REM_TEXT_SIZE;
 
 u32 InfoBuffer[3];
 u8 TextBuffer[1024 * 1024];
-u8 DataBuffer[1024]; //*1024
-
-u16 REQ_NUMBER = 1;
+u8 DataBuffer[1024]; //*1024???
 
 u8 CURRENT_STATE = INITIAL_STATE;
-u8 CURRENT_COMMAND;
-u8 CURRENT_FLASH_SECTION;
+u8 CURRENT_FLASH_SECTION = TEXT_SECTION;
+
+u16 REQ_NUMBER = 1;
+u16 CURRENT_COMMAND;
 
 static u8 RxFrameBuffer [sizeof (ReqDateFrame_t)] ;
 ReqDateFrame_t * TXFrame = (ReqDateFrame_t *) RxFrameBuffer;
 
-
-
 static u8 TxFrameBuffer [sizeof (RespFrame_t)] ;
 RespFrame_t * RXFrame = (RespFrame_t *) TxFrameBuffer;
+
 
 /* for usb */
 HANDLE GetSerialPort(char *);
 
-void main(void) {
+
+
+void main(void)
+{
+	u8 i;
 
 	/* for usb */
 	HANDLE h1;
 	DWORD byteswritten = 0, bytesread = 0;
     //open port
-	h1 = GetSerialPort("\\\\.\\COM5");
+	h1 = GetSerialPort("\\\\.\\COM3") ;   /* edit com port*/
 
-   printf("UART handle = %d\n", h1);
-
+    printf("UART handle = %d\n", h1);
+	
+    /* read data from INFO file */
 	void* InfoFilePtr;
 	void * DataFilePtr;
 	void *TextFilePtr;
@@ -59,11 +66,12 @@ void main(void) {
 	fread(InfoBuffer, 4, 5, InfoFilePtr);
 	fclose(InfoFilePtr);
 
-	Start_Address = InfoBuffer[0];
-	APP_SIZE = InfoBuffer[1];
-	ENTRY_POINT = InfoBuffer[2];
-	DATA_ADDRESS = InfoBuffer[3];
-	DATA_SIZE = InfoBuffer[4];
+	Start_Address = InfoBuffer[0] ;  //0X08002000
+	APP_SIZE = InfoBuffer[1] ; // 0x100
+	ENTRY_POINT = InfoBuffer[2];  // 0X0800210d
+	DATA_ADDRESS = InfoBuffer[3] ;// 0X08004000
+	DATA_SIZE = InfoBuffer[4] ; // 0x10
+
 	REM_DATA_SIZE = DATA_SIZE % 8;
 	TEXT_SIZE = APP_SIZE - DATA_SIZE;
 	REM_TEXT_SIZE = TEXT_SIZE % 8;
@@ -76,155 +84,202 @@ void main(void) {
 	fread(TextBuffer, 4, TEXT_SIZE, TextFilePtr);
 	fclose(TextFilePtr);
 
-	switch (CURRENT_STATE) {
-	case INITIAL_STATE:
-		RXFrame->Result = NOK_RESPONSE; //??
-		//TXframe
-		//header
-		TXFrame->ReqHeader.Request_No = REQ_NUMBER;
-		TXFrame->ReqHeader.CMD_No = Cmd_FlashNewApp;
-		CURRENT_COMMAND = Cmd_FlashNewApp;
-		//data of flash new app
 
-		TXFrame->Data_t.FlashNewApp.Key = KEY_ENCRYPTION;
-		TXFrame->Data_t.FlashNewApp.StartAddress = Start_Address;
-		TXFrame->Data_t.FlashNewApp.AppSize = APP_SIZE;
-		TXFrame->Data_t.FlashNewApp.EntryPoint = ENTRY_POINT;
+while(CURRENT_STATE !=  FLASH_DONE )
+{
+	switch (CURRENT_STATE) 
+	{
+		case INITIAL_STATE:
 
-      printf("sizeof(FlashNewApp_t) = %d\n", sizeof(FlashNewApp_t));
-      printf("sizeof(WriteSector_t) = %d\n", sizeof(WriteSector_t));
-      printf("sizeof(ReqHeader_t) = %d\n", sizeof(ReqHeader_t));
-      printf("sizeof(ReqDateFrame_t) = %d\n", sizeof(ReqDateFrame_t));
-      printf("sizeof(RespFrame_t) = %d\n", sizeof(RespFrame_t));
+			RXFrame->Result = NOK_RESPONSE;
 
-      printf("sizeof(u32) = %d\n", sizeof(u32));
-      printf("sizeof(u16) = %d\n", sizeof(u16));
-      printf("sizeof(u8) = %d\n", sizeof(u8));
+			//update TXFrame header with Request Header
+			TXFrame->ReqHeader.Request_No = REQ_NUMBER;
+			TXFrame->ReqHeader.CMD_No = Cmd_FlashNewApp;
+			CURRENT_COMMAND = Cmd_FlashNewApp;
 
-		//send data over usb
-		WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);//h1_buffer //data_size
+			//update TXFrame data with the data of flash new app
+			TXFrame->Data_t.FlashNewApp.Key = KEY_ENCRYPTION;
+			TXFrame->Data_t.FlashNewApp.StartAddress = Start_Address;
+			TXFrame->Data_t.FlashNewApp.AppSize = APP_SIZE;
+			TXFrame->Data_t.FlashNewApp.EntryPoint = ENTRY_POINT;
 
-      printf("before loop\n");
-        
-		//check bytesread flag??
-		while (RXFrame->Result == NOK_RESPONSE) {
-			ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
+			printf("sizeof(FlashNewApp_t) = %d\n", sizeof(FlashNewApp_t));
+			printf("sizeof(WriteSector_t) = %d\n", sizeof(WriteSector_t));
+			printf("sizeof(ReqHeader_t) = %d\n", sizeof(ReqHeader_t));
+			printf("sizeof(ReqDateFrame_t) = %d\n", sizeof(ReqDateFrame_t));
+			printf("sizeof(RespFrame_t) = %d\n", sizeof(RespFrame_t));
+
+			printf("sizeof(u32) = %d\n", sizeof(u32));
+			printf("sizeof(u16) = %d\n", sizeof(u16));
+			printf("sizeof(u8) = %d\n", sizeof(u8));
+
+			//send data over usb
+			WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
+
+			printf("before loop\n");
+
+			//check bytesread flag??
+			while (RXFrame->Result == NOK_RESPONSE)
+			{
+				ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
+			}
+
+			printf("after loop\n");
+
+			//read data from usb
+			if (RXFrame->Request_No == REQ_NUMBER&& RXFrame->CMD_No==CURRENT_COMMAND && RXFrame->Result==OK_RESPONSE)
+			{
+				CURRENT_STATE = WRITING_SECTOR;
+				REQ_NUMBER++;
+			}
+
+			break;
+
+		case WRITING_SECTOR:
+
+			if (CURRENT_FLASH_SECTION == TEXT_SECTION)
+			{
+				while (TEXT_SIZE != 0)
+				{
+					RXFrame->Result = NOK_RESPONSE;
+					CURRENT_COMMAND = Cmd_WriteSector;
+
+					//update TXFrame
+					TXFrame->ReqHeader.Request_No = REQ_NUMBER;
+					TXFrame->ReqHeader.CMD_No = Cmd_WriteSector;
+					TXFrame->Data_t.WriteSector.Address = Start_Address;
+					TXFrame->Data_t.WriteSector.FrameDataSize = 8;
+
+
+					if (TEXT_SIZE == REM_TEXT_SIZE)
+					{
+						for (i = 0; i < 8; i++)
+						{
+							TXFrame->Data_t.WriteSector.Data[i] = 0xFF;
+						}
+
+						for (i = 0; i < REM_TEXT_SIZE; i++)
+						{
+							TXFrame->Data_t.WriteSector.Data[i] = TextBuffer[i];
+						}
+					}
+					else
+					{
+						for (i = 0; i < 8; i++)
+						{
+							TXFrame->Data_t.WriteSector.Data[i] = TextBuffer[i];
+						}
+					}
+
+					//send data over usb
+					WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
+
+					//check bytesread flag??
+					while (RXFrame->Result == NOK_RESPONSE)
+					{
+						ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
+					}
+
+					if (RXFrame->Request_No == REQ_NUMBER&& RXFrame->CMD_No==CURRENT_COMMAND && RXFrame->Result==OK_RESPONSE)
+					{
+						REQ_NUMBER++;
+						Start_Address += 0x2;
+
+						if (TEXT_SIZE == REM_TEXT_SIZE)
+						{
+							TEXT_SIZE = 0 ;
+						}
+						else
+						{
+							TEXT_SIZE -= 8;
+						}
+
+					}
+
+				}//end of while
+
+				CURRENT_FLASH_SECTION = DATA_SECTION;
+			}
+
+			else if (CURRENT_FLASH_SECTION == DATA_SECTION)
+			{
+				while (DATA_SIZE != 0)
+				{
+					RXFrame->Result = NOK_RESPONSE;
+					CURRENT_COMMAND = Cmd_WriteSector;
+
+					//update TXFrame
+					TXFrame->ReqHeader.Request_No = REQ_NUMBER;
+					TXFrame->ReqHeader.CMD_No = Cmd_WriteSector;
+					TXFrame->Data_t.WriteSector.Address = DATA_ADDRESS;
+					TXFrame->Data_t.WriteSector.FrameDataSize = 8;
+
+
+					if (DATA_SIZE == REM_DATA_SIZE)
+					{
+						for (i = 0; i < 8; i++)
+						{
+							TXFrame->Data_t.WriteSector.Data[i] = 0xFF;
+						}
+						for (i = 0; i < REM_TEXT_SIZE; i++)
+						{
+							TXFrame->Data_t.WriteSector.Data[i] = DataBuffer[i];
+						}
+					}
+					else
+					{
+						for (i = 0; i < 8; i++)
+						{
+							TXFrame->Data_t.WriteSector.Data[i] = DataBuffer[i];
+						}
+					}
+
+					//send data over usb
+					WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
+
+					//check bytesread flag??
+					while (RXFrame->Result == NOK_RESPONSE)
+					{
+						ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
+					}
+
+                    //receive from usb
+					if (RXFrame->Request_No == REQ_NUMBER&& RXFrame->CMD_No==CURRENT_COMMAND && RXFrame->Result==OK_RESPONSE)
+					{
+						REQ_NUMBER++;
+						DATA_ADDRESS += 0x2;
+
+						if (DATA_SIZE == REM_DATA_SIZE)
+						{
+							DATA_SIZE = 0;
+						}
+						else
+						{
+							DATA_SIZE -= 8;
+						}
+					}
+
+				}//enf of while
+
+				CURRENT_FLASH_SECTION = FLASH_DONE;
+				CURRENT_STATE = FLASH_DONE;
+			}
+
+			break;
+
+		case FLASH_DONE:
+
+			break;
 		}
-        
-        
-      printf("after loop\n");
-        
-		if (RXFrame->Request_No
-				== REQ_NUMBER&& RXFrame->CMD_No==CURRENT_COMMAND && RXFrame->Result==OK_RESPONSE) {
-			CURRENT_STATE = WRITING_SECTOR;
-			REQ_NUMBER++;
-		}
 
-		break;
-
-	case WRITING_SECTOR:
-		if (CURRENT_FLASH_SECTION == TEXT_SECTION) {
-			while (TEXT_SIZE != 0) {
-				RXFrame->Result = NOK_RESPONSE; //??
-				//TXframe
-				//header
-				TXFrame->ReqHeader.Request_No = REQ_NUMBER;
-				TXFrame->ReqHeader.CMD_No = Cmd_WriteSector;
-				CURRENT_COMMAND = Cmd_WriteSector;
-
-				TXFrame->Data_t.WriteSector.Address = Start_Address;
-				TXFrame->Data_t.WriteSector.FrameDataSize = 8;
-				u8 i;
-
-				if (TEXT_SIZE == REM_TEXT_SIZE) {
-					for (i = 0; i < 8; i++) {
-						TXFrame->Data_t.WriteSector.Data[i] = 0xFF;
-					}
-					for (i = 0; i < REM_TEXT_SIZE; i++) {
-						TXFrame->Data_t.WriteSector.Data[i] = TextBuffer[i];
-					}
-				} else {
-					for (i = 0; i < 8; i++) {
-						TXFrame->Data_t.WriteSector.Data[i] = TextBuffer[i];
-					}
-				}
-
-				//send data over usb
-				WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
-
-				//check bytesread flag??
-				while (RXFrame->Result == NOK_RESPONSE) {
-					ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
-				}
-				if (RXFrame->Request_No
-						== REQ_NUMBER&& RXFrame->CMD_No==CURRENT_COMMAND && RXFrame->Result==OK_RESPONSE) {
-					REQ_NUMBER++;
-
-					Start_Address += 0x2;
-					TEXT_SIZE -= 8;
-				}
-
-			}//end of while
-			CURRENT_FLASH_SECTION = DATA_SECTION;
-
-		}
-
-		else if (CURRENT_FLASH_SECTION == DATA_SECTION) {
-
-			while (DATA_SIZE != 0) {
-				RXFrame->Result = NOK_RESPONSE; //??
-				//TXframe
-				//header
-				TXFrame->ReqHeader.Request_No = REQ_NUMBER;
-				TXFrame->ReqHeader.CMD_No = Cmd_WriteSector;
-				CURRENT_COMMAND = Cmd_WriteSector;
-
-				TXFrame->Data_t.WriteSector.Address = DATA_ADDRESS;
-				TXFrame->Data_t.WriteSector.FrameDataSize = 8;
-				u8 i;
-
-				if (DATA_SIZE == REM_DATA_SIZE) {
-					for (i = 0; i < 8; i++) {
-						TXFrame->Data_t.WriteSector.Data[i] = 0xFF;
-					}
-					for (i = 0; i < REM_TEXT_SIZE; i++) {
-						TXFrame->Data_t.WriteSector.Data[i] = DataBuffer[i];
-					}
-				} else {
-					for (i = 0; i < 8; i++) {
-						TXFrame->Data_t.WriteSector.Data[i] = DataBuffer[i];
-					}
-				}
-
-				//send data over usb
-				WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
-
-				//check bytesread flag??
-				while (RXFrame->Result == NOK_RESPONSE) {
-					ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
-				}
-				if (RXFrame->Request_No
-						== REQ_NUMBER&& RXFrame->CMD_No==CURRENT_COMMAND && RXFrame->Result==OK_RESPONSE) {
-					REQ_NUMBER++;
-
-					DATA_ADDRESS += 0x2;
-					DATA_SIZE -= 8;
-				}
-
-			}				//enf of while
-			CURRENT_FLASH_SECTION = FLASH_DONE;
-			CURRENT_STATE = FLASH_DONE;
-		}
-		break;
-	case FLASH_DONE:
-		//do nothing
-		break;
-
-	}
-
-	//close USB Port
-	  CloseHandle(h1);
 }
+
+   //close USB Port
+	CloseHandle(h1);
+
+}
+
 
 HANDLE GetSerialPort(char *p)
 {
@@ -252,8 +307,8 @@ HANDLE GetSerialPort(char *p)
     dcbSerialParams.StopBits  = ONESTOPBIT;
     dcbSerialParams.Parity    = NOPARITY;
 
-
     SetCommState(hSerial, &dcbSerialParams);
 
     return hSerial;
 }
+
