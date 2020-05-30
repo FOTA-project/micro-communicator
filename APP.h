@@ -1,0 +1,8 @@
+typedef enum
+{
+	INITIAL_STATE= 0,
+	WRITING_SECTOR,
+	TEXT_SECTION ,
+	DATA_SECTION,
+	FLASH_DONE
+}FlashingStates_t;
