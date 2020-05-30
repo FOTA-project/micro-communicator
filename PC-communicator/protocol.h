@@ -6,15 +6,15 @@
  */
 
 
-#define KEY_ENCRYPTION     0x12345678
+#define KEY_ENCRYPTION      0x12345678
 #define OK_RESPONSE			1
 #define NOK_RESPONSE		2
 
 
 typedef enum
 {
-	Cmd_WriteSector = 0x01,
-	Cmd_FlashNewApp
+	Cmd_FlashNewApp  = 0x01,
+	Cmd_WriteSector
 
 }ReqCmd_t;
 
@@ -31,17 +31,15 @@ typedef struct
 {
 	u32 Address;
 	u32 FrameDataSize;
-	u8 Data[8];
-	//u16 Data[1024];
+	u8  Data[8];
+	
 }WriteSector_t;
 
 
 typedef struct
 {
-
 	u16 Request_No;
-	u8 CMD_No;
-	//u32 FrameSize;
+	u16 CMD_No;
 
 }ReqHeader_t;
 
@@ -50,11 +48,11 @@ typedef struct
 typedef struct
 {
 	ReqHeader_t ReqHeader;
+
 	union
 	{
 		FlashNewApp_t	FlashNewApp;
 		WriteSector_t	WriteSector;
-
 
 	}Data_t;
 
