@@ -76,10 +76,10 @@ void main(void)
 	}
 	fclose(InfoFilePtr);
 
-	Start_Address = InfoBuffer[0] ;  //0X08002000
+	Start_Address = 0x08002000;  //0X08002000//InfoBuffer[0]
 	APP_SIZE = InfoBuffer[1] ; // 0x100
 	ENTRY_POINT = InfoBuffer[2];  // 0X0800210d
-	DATA_ADDRESS = InfoBuffer[3] ;// 0X08004000
+	DATA_ADDRESS =  InfoBuffer[3] + 0x2000;// 0X08004000 //
 	DATA_SIZE = InfoBuffer[4] ; // 0x10
 
 	REM_DATA_SIZE = DATA_SIZE % 8;
@@ -125,6 +125,7 @@ while(CURRENT_STATE !=  FLASH_DONE )
 			printf("sizeof(u8) = %d\n", sizeof(u8));
 */
 			//send data over usb
+			Sleep(150);
 			WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
 
 			printf("before loop\n");
@@ -184,6 +185,7 @@ while(CURRENT_STATE !=  FLASH_DONE )
 					}
 
 					//send data over usb
+					Sleep(150);
 					WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
 
 					//check bytesread flag??
@@ -248,6 +250,7 @@ while(CURRENT_STATE !=  FLASH_DONE )
 					}
 
 					//send data over usb
+					Sleep(150);
 					WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
 
 					//check bytesread flag??

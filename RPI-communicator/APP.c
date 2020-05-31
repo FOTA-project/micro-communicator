@@ -1,16 +1,20 @@
+// 3adel da
+
 /* includes */
-#include <stdio.h>
-#include <windows.h>
+#include <stdio.h>          // printf
+#include <unistd.h>         // delay
+#include <wiringSerial.h>   // serial
 #include "STD_TYPES.h"
 #include "protocol.h"
 
 
-/* macros */
+/* flashing state (used in switch) */
 #define INITIAL_STATE     0
-#define	WRITING_SECTOR    1
-#define	TEXT_SECTION      0
-#define	DATA_SECTION      1  
-#define	FLASH_DONE        2
+#define WRITING_SECTOR    1
+#define FLASH_DONE        2
+
+#define TEXT_SECTION      0
+#define DATA_SECTION      1
 
 
 /* global variables */
@@ -44,9 +48,11 @@ static u8 TxFrameBuffer [sizeof (RespFrame_t)] ;
 RespFrame_t * RXFrame = (RespFrame_t *) TxFrameBuffer;
 
 
-/* for usb */
-HANDLE GetSerialPort(char *);
+/* write an array on the UART */
+void WriteFile(u32 handleUART, void* buffer, u32 length, u32* outWrittenBytes, void* outNull);
 
+/* Receive an array from the UART, this blocks untill the entire array is filled */
+void ReadFile(u32 handleUART, void* outBuffer, u32 length, u32* outWrittenBytes, void* outNull);
 
 
 void main(void)
@@ -54,36 +60,37 @@ void main(void)
 	u8 i;
 
 	/* for usb */
-	HANDLE h1;
-	DWORD byteswritten = 0, bytesread = 0;
-    //open port
-	h1 = GetSerialPort("\\\\.\\COM3") ;   /* edit com port*/
+	u32 h1;
+	u32 byteswritten = 0, bytesread = 0;
+   
+   //open port
+	h1 = serialOpen("/dev/serial0", 9600);
 
-    printf("UART handle = %d\n", h1);
+   printf("UART handle = %d\n", h1);
 	
-    /* read data from INFO file */
-	void*  InfoFilePtr;
-	void * DataFilePtr;
-	void * TextFilePtr;
+   /* read data from INFO file */
+	void* InfoFilePtr;
+	void* DataFilePtr;
+	void* TextFilePtr;
 
 	InfoFilePtr = fopen("INFO_FILE.txt", "rb");
 	//fread(InfoBuffer, 4, 5, InfoFilePtr);
 
-	for(i=0;i<5;i++)
+	for(i = 0; i < 5; i++)
 	{
 		fscanf(InfoFilePtr, "%d,", &InfoBuffer[i] );
 		printf("InfoBuffer[i]  = %x\n", InfoBuffer[i] );
 	}
 	fclose(InfoFilePtr);
 
-	Start_Address = 0x08002000;  //0X08002000//InfoBuffer[0]
-	APP_SIZE = InfoBuffer[1] ; // 0x100
-	ENTRY_POINT = InfoBuffer[2];  // 0X0800210d
-	DATA_ADDRESS =  InfoBuffer[3] + 0x2000;// 0X08004000 //
-	DATA_SIZE = InfoBuffer[4] ; // 0x10
+	Start_Address = InfoBuffer[0];  //0X08002000
+	APP_SIZE      = InfoBuffer[1]; // 0x100
+	ENTRY_POINT   = InfoBuffer[2];  // 0X0800210d
+	DATA_ADDRESS  = InfoBuffer[3];// 0X08004000
+	DATA_SIZE     = InfoBuffer[4]; // 0x10
 
 	REM_DATA_SIZE = DATA_SIZE % 8;
-	TEXT_SIZE = APP_SIZE - DATA_SIZE;
+	TEXT_SIZE     = APP_SIZE - DATA_SIZE;
 	REM_TEXT_SIZE = TEXT_SIZE % 8;
 
 	DataFilePtr = fopen("DATA_FILE.txt", "rb");
@@ -125,7 +132,6 @@ while(CURRENT_STATE !=  FLASH_DONE )
 			printf("sizeof(u8) = %d\n", sizeof(u8));
 */
 			//send data over usb
-			Sleep(150);
 			WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
 
 			printf("before loop\n");
@@ -185,7 +191,6 @@ while(CURRENT_STATE !=  FLASH_DONE )
 					}
 
 					//send data over usb
-					Sleep(150);
 					WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
 
 					//check bytesread flag??
@@ -250,7 +255,6 @@ while(CURRENT_STATE !=  FLASH_DONE )
 					}
 
 					//send data over usb
-					Sleep(150);
 					WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
 
 					//check bytesread flag??
@@ -297,11 +301,11 @@ while(CURRENT_STATE !=  FLASH_DONE )
 }
 
 
-HANDLE GetSerialPort(char *p)
+u32 GetSerialPort(char *p)
 {
    // https://docs.microsoft.com/en-us/windows/win32/devio/configuring-a-communications-resource
 
-    HANDLE hSerial;
+    u32 hSerial;
     hSerial = CreateFile(p,
                          GENERIC_READ | GENERIC_WRITE,
                          0,
