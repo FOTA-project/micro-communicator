@@ -13,6 +13,10 @@
 #define TEXT_SECTION      0
 #define DATA_SECTION      1
 
+#define LOADING_STRING    "#"
+#define PRINT_LOADING()   printf(LOADING_STRING); \
+                          fflush(stdout)
+
 
 /* global variables */
 u32 Start_Address;
@@ -63,8 +67,6 @@ void main(void)
    //open port
 	h1 = serialOpen("/dev/serial0", 9600);
 
-   printf("UART handle = %d\n", h1);
-	
     /* read data from INFO file */
 	void*  InfoFilePtr;
 	void*  DataFilePtr;
@@ -76,7 +78,7 @@ void main(void)
 	for(i = 0; i < 5; i++)
 	{
 		fscanf(InfoFilePtr, "%d,", &InfoBuffer[i] );
-		printf("InfoBuffer[i]  = %x\n", InfoBuffer[i] );
+		printf("InfoBuffer[i]  = %x\n", InfoBuffer[i]);
 	}
 	fclose(InfoFilePtr);
 
@@ -99,8 +101,8 @@ void main(void)
 	fclose(TextFilePtr);
 
 
-   while(CURRENT_STATE !=  FLASH_DONE )
-   {
+   while(CURRENT_STATE !=  FLASH_DONE)
+   {      
       switch (CURRENT_STATE) 
       {
       case INITIAL_STATE:
@@ -119,7 +121,7 @@ void main(void)
          TXFrame->Data_t.FlashNewApp.EntryPoint = ENTRY_POINT;
 
          // DEBUG
-         printf("sizeof(FlashNewApp_t) = %d\n", sizeof(FlashNewApp_t));
+         /*printf("sizeof(FlashNewApp_t) = %d\n", sizeof(FlashNewApp_t));
          printf("sizeof(WriteSector_t) = %d\n", sizeof(WriteSector_t));
          printf("sizeof(ReqHeader_t) = %d\n", sizeof(ReqHeader_t));
          printf("sizeof(ReqDateFrame_t) = %d\n", sizeof(ReqDateFrame_t));
@@ -127,21 +129,18 @@ void main(void)
 
          printf("sizeof(u32) = %d\n", sizeof(u32));
          printf("sizeof(u16) = %d\n", sizeof(u16));
-         printf("sizeof(u8) = %d\n", sizeof(u8));
-
+         printf("sizeof(u8) = %d\n", sizeof(u8));*/
+         
+         PRINT_LOADING();
+         
          //send data over UART
-         usleep(150 * 1000); // in microsec
          WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
-
-         printf("before loop\n");
 
          //check bytesread flag??
          while (RXFrame->Result == NOK_RESPONSE)
          {
             ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
          }
-
-         printf("after loop\n");
 
          //read data from UART
          if ( (RXFrame->Request_No == REQ_NUMBER) &&
@@ -168,7 +167,6 @@ void main(void)
                TXFrame->Data_t.WriteSector.Address = Start_Address;
                TXFrame->Data_t.WriteSector.FrameDataSize = 8;
 
-
                if (TEXT_SIZE == REM_TEXT_SIZE)
                {
                   // initialize all the values with an empty block value
@@ -191,8 +189,9 @@ void main(void)
                   }
                }
 
+               PRINT_LOADING();
+         
                //send data over UART
-               usleep(150 * 1000); // in microsec
                WriteFile(h1, TXFrame, sizeof(ReqDateFrame_t), &byteswritten, NULL);
 
                //check bytesread flag??
@@ -220,7 +219,7 @@ void main(void)
 
                }
 
-            }//end of while
+            } //end of while
 
             CURRENT_FLASH_SECTION = DATA_SECTION;
          }
@@ -230,13 +229,12 @@ void main(void)
             {
                RXFrame->Result = NOK_RESPONSE;
                CURRENT_COMMAND = Cmd_WriteSector;
-
+               
                //update TXFrame
                TXFrame->ReqHeader.Request_No = REQ_NUMBER;
                TXFrame->ReqHeader.CMD_No = Cmd_WriteSector;
                TXFrame->Data_t.WriteSector.Address = DATA_ADDRESS;
                TXFrame->Data_t.WriteSector.FrameDataSize = 8;
-
 
                if (DATA_SIZE == REM_DATA_SIZE)
                {
@@ -257,17 +255,25 @@ void main(void)
                      TXFrame->Data_t.WriteSector.Data[i] = DataBuffer[i + DataOffest];
                   }
                }
-
+               
+               PRINT_LOADING();
+         
                //send data over UART
-               usleep(150 * 1000); // in microsec
                WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
 
                //check bytesread flag??
                while (RXFrame->Result == NOK_RESPONSE)
                {
                   ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
+                  
+                  if (bytesread < sizeof(RespFrame_t))
+                  {
+                     printf("###### ERROR: received bytes < expected, forcing DATA_SIZE = 0\n");
+                     DATA_SIZE = 0;
+                     break;
+                  }
                }
-
+               
                //receive from UART
                if ( (RXFrame->Request_No == REQ_NUMBER) &&
                     (RXFrame->CMD_No == CURRENT_COMMAND) &&
@@ -287,7 +293,7 @@ void main(void)
                   }
                }
             } //end of while
-
+            
             CURRENT_FLASH_SECTION = FLASH_DONE;
             CURRENT_STATE = FLASH_DONE;
          }
@@ -318,21 +324,31 @@ void WriteFile(u32 handleUART, void* buffer, u32 length, u32* outWrittenBytes, v
 /* Receive an array from the UART, this blocks untill the entire array is filled */
 void ReadFile(u32 handleUART, void* outBuffer, u32 length, u32* outWrittenBytes, void* outNull)
 {
+   u32 timeoutCtr = 0x000000FF;
+   u32 i = 0;
+   
    // foreach char required
-   for (u32 i = 0; i < length; i++)
+   for (; i < length; i++)
    {
       // trap while there're no bytes available on the UART
-      while (serialDataAvail(handleUART) < 1)
+      while ((serialDataAvail(handleUART) < 1) && timeoutCtr)
       {
+         timeoutCtr--;
          // give CPU some time
-         usleep(300); // in microsec
+         usleep(5 * 1000); // in microsec
+      }
+      
+      if (timeoutCtr == 0)
+      {
+         break;
       }
       
       // while there're avaialble bytes
-      while (serialDataAvail(handleUART))
+      while (serialDataAvail(handleUART) > 0)
       {
          // store each byte
-         ((u8*)buffer)[i] = (u8)serialGetchar(handleUART);
+         ((u8*)outBuffer)[i] = (u8)serialGetchar(handleUART);
+         
          i++;
       }
       
@@ -340,5 +356,7 @@ void ReadFile(u32 handleUART, void* outBuffer, u32 length, u32* outWrittenBytes,
       // so that we don't skip a location in the array
       i--;
    }
+   
+   *outWrittenBytes = i;
 }
 

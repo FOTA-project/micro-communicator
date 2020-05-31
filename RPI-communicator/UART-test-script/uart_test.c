@@ -28,10 +28,12 @@ void main(void)
 		while (!isDone)
 		{
 			// give CPU some time
-			usleep(100 * 1000); // in microsec
+			usleep(5000 * 1000); // in microsec
 			
 			if (serialDataAvail(uartHandle) > 0) // if data is available on the UART
 			{
+				printf("Bytes available = %d\n", serialDataAvail(uartHandle));
+				
 				// get char
 				key = serialGetchar(uartHandle);
 				
