@@ -5,6 +5,13 @@
 #include "STD_TYPES.h"
 #include "protocol.h"
 
+#define ERROR_SUCCESS                0
+#define ERROR_COULDNT_OPEN_UART      -1
+#define ERROR_COULDNT_OPEN_INFO_FILE -2
+#define ERROR_COULDNT_OPEN_DATA_FILE -3
+#define ERROR_COULDNT_OPEN_TEXT_FILE -4
+#define ERROR_ACK_TIMEDOUT           -5
+
 /* flashing state (used in switch) */
 #define INITIAL_STATE     0
 #define WRITING_SECTOR    1
@@ -57,22 +64,37 @@ void ReadFile(u32 handleUART, void* outBuffer, u32 length, u32* outWrittenBytes,
 
 
 
-void main(void)
+int main(void)
 {
 	u8 i;
 
 	u32 h1;
 	u32 byteswritten = 0, bytesread = 0;
    
+   u8 state = ERROR_SUCCESS;
+   
    //open port
 	h1 = serialOpen("/dev/serial0", 9600);
+   
+   if (h1 == -1) // if opening the UART handle failed
+   {
+      printf("### ERROR: couldn't open a handle to the UART device ###\n");
+      return ERROR_COULDNT_OPEN_UART;
+   }
 
     /* read data from INFO file */
-	void*  InfoFilePtr;
-	void*  DataFilePtr;
-	void*  TextFilePtr;
+	void* InfoFilePtr;
+	void* DataFilePtr;
+	void* TextFilePtr;
 
 	InfoFilePtr = fopen("INFO_FILE.txt", "rb");
+   
+   if (InfoFilePtr == NULL)
+   {
+      printf("### ERROR: couldn't open INFO_FILE.txt ###\n");
+      return ERROR_COULDNT_OPEN_INFO_FILE;
+   }
+   
 	//fread(InfoBuffer, 4, 5, InfoFilePtr);
 
 	for(i = 0; i < 5; i++)
@@ -93,15 +115,27 @@ void main(void)
 	REM_TEXT_SIZE = TEXT_SIZE % 8;
 
 	DataFilePtr = fopen("DATA_FILE.txt", "rb");
+   if (DataFilePtr == NULL)
+   {
+      printf("### ERROR: couldn't open DATA_FILE.txt ###\n");
+      return ERROR_COULDNT_OPEN_DATA_FILE;
+   }
+   
 	fread(DataBuffer, 4, DATA_SIZE, DataFilePtr);
 	fclose(DataFilePtr);
 
 	TextFilePtr = fopen("TEXT_FILE.txt", "rb");
+   if (TextFilePtr == NULL)
+   {
+      printf("### ERROR: couldn't open TEXT_FILE.txt ###\n");
+      return ERROR_COULDNT_OPEN_TEXT_FILE;
+   }
+   
 	fread(TextBuffer, 4, TEXT_SIZE, TextFilePtr);
 	fclose(TextFilePtr);
 
 
-   while(CURRENT_STATE !=  FLASH_DONE)
+   while(CURRENT_STATE != FLASH_DONE)
    {      
       switch (CURRENT_STATE) 
       {
@@ -140,6 +174,15 @@ void main(void)
          while (RXFrame->Result == NOK_RESPONSE)
          {
             ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
+            
+            if (bytesread != sizeof(RespFrame_t))
+            {
+               printf("### ERROR: bytesread != sizeof(RespFrame_t), terminating ###\n");
+               DATA_SIZE = 0;
+               CURRENT_STATE = FLASH_DONE;
+               state = ERROR_ACK_TIMEDOUT;
+               break;
+            }
          }
 
          //read data from UART
@@ -198,6 +241,15 @@ void main(void)
                while (RXFrame->Result == NOK_RESPONSE)
                {
                   ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
+                  
+                  if (bytesread != sizeof(RespFrame_t))
+                  {
+                     printf("### ERROR: bytesread != sizeof(RespFrame_t), terminating ###\n");
+                     DATA_SIZE = 0;
+                     CURRENT_STATE = FLASH_DONE;
+                     state = ERROR_ACK_TIMEDOUT;
+                     break;
+                  }
                }
 
                if ( (RXFrame->Request_No == REQ_NUMBER) &&
@@ -266,10 +318,12 @@ void main(void)
                {
                   ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
                   
-                  if (bytesread < sizeof(RespFrame_t))
+                  if (bytesread != sizeof(RespFrame_t))
                   {
-                     printf("###### ERROR: received bytes < expected, forcing DATA_SIZE = 0\n");
+                     printf("### ERROR: bytesread != sizeof(RespFrame_t), terminating ###\n");
                      DATA_SIZE = 0;
+                     CURRENT_STATE = FLASH_DONE;
+                     state = ERROR_ACK_TIMEDOUT;
                      break;
                   }
                }
@@ -307,6 +361,8 @@ void main(void)
 
    //close UART Port
 	serialClose(h1);
+   
+   return state;
 }
 
 
@@ -324,7 +380,7 @@ void WriteFile(u32 handleUART, void* buffer, u32 length, u32* outWrittenBytes, v
 /* Receive an array from the UART, this blocks untill the entire array is filled */
 void ReadFile(u32 handleUART, void* outBuffer, u32 length, u32* outWrittenBytes, void* outNull)
 {
-   u32 timeoutCtr = 0x000000FF;
+   u8 timeoutCtr = 128;
    u32 i = 0;
    
    // foreach char required
@@ -338,7 +394,7 @@ void ReadFile(u32 handleUART, void* outBuffer, u32 length, u32* outWrittenBytes,
          usleep(5 * 1000); // in microsec
       }
       
-      if (timeoutCtr == 0)
+      if (timeoutCtr == 0) // if no data was received during the timeout period
       {
          break;
       }
