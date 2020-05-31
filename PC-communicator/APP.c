@@ -23,7 +23,8 @@ u32 REM_DATA_SIZE;
 u32 TEXT_SIZE;
 u32 REM_TEXT_SIZE;
 
-u32 InfoBuffer[3];
+u32 InfoBuffer[5];
+
 u8 TextBuffer[1024 * 1024];
 u8 DataBuffer[1024]; //*1024???
 
@@ -32,6 +33,9 @@ u8 CURRENT_FLASH_SECTION = TEXT_SECTION;
 
 u16 REQ_NUMBER = 1;
 u16 CURRENT_COMMAND;
+
+u32 TextOffest;
+u32 DataOffest;
 
 static u8 RxFrameBuffer [sizeof (ReqDateFrame_t)] ;
 ReqDateFrame_t * TXFrame = (ReqDateFrame_t *) RxFrameBuffer;
@@ -58,12 +62,18 @@ void main(void)
     printf("UART handle = %d\n", h1);
 	
     /* read data from INFO file */
-	void* InfoFilePtr;
+	void*  InfoFilePtr;
 	void * DataFilePtr;
-	void *TextFilePtr;
+	void * TextFilePtr;
 
 	InfoFilePtr = fopen("INFO_FILE.txt", "rb");
-	fread(InfoBuffer, 4, 5, InfoFilePtr);
+	//fread(InfoBuffer, 4, 5, InfoFilePtr);
+
+	for(i=0;i<5;i++)
+	{
+		fscanf(InfoFilePtr, "%d,", &InfoBuffer[i] );
+		printf("InfoBuffer[i]  = %x\n", InfoBuffer[i] );
+	}
 	fclose(InfoFilePtr);
 
 	Start_Address = InfoBuffer[0] ;  //0X08002000
@@ -103,7 +113,7 @@ while(CURRENT_STATE !=  FLASH_DONE )
 			TXFrame->Data_t.FlashNewApp.StartAddress = Start_Address;
 			TXFrame->Data_t.FlashNewApp.AppSize = APP_SIZE;
 			TXFrame->Data_t.FlashNewApp.EntryPoint = ENTRY_POINT;
-
+/*
 			printf("sizeof(FlashNewApp_t) = %d\n", sizeof(FlashNewApp_t));
 			printf("sizeof(WriteSector_t) = %d\n", sizeof(WriteSector_t));
 			printf("sizeof(ReqHeader_t) = %d\n", sizeof(ReqHeader_t));
@@ -113,7 +123,7 @@ while(CURRENT_STATE !=  FLASH_DONE )
 			printf("sizeof(u32) = %d\n", sizeof(u32));
 			printf("sizeof(u16) = %d\n", sizeof(u16));
 			printf("sizeof(u8) = %d\n", sizeof(u8));
-
+*/
 			//send data over usb
 			WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
 
@@ -161,15 +171,16 @@ while(CURRENT_STATE !=  FLASH_DONE )
 
 						for (i = 0; i < REM_TEXT_SIZE; i++)
 						{
-							TXFrame->Data_t.WriteSector.Data[i] = TextBuffer[i];
+							TXFrame->Data_t.WriteSector.Data[i] = TextBuffer[i+ TextOffest];
 						}
 					}
 					else
 					{
 						for (i = 0; i < 8; i++)
 						{
-							TXFrame->Data_t.WriteSector.Data[i] = TextBuffer[i];
+							TXFrame->Data_t.WriteSector.Data[i] = TextBuffer[i + TextOffest];
 						}
+
 					}
 
 					//send data over usb
@@ -184,7 +195,7 @@ while(CURRENT_STATE !=  FLASH_DONE )
 					if (RXFrame->Request_No == REQ_NUMBER&& RXFrame->CMD_No==CURRENT_COMMAND && RXFrame->Result==OK_RESPONSE)
 					{
 						REQ_NUMBER++;
-						Start_Address += 0x2;
+						Start_Address += 8;
 
 						if (TEXT_SIZE == REM_TEXT_SIZE)
 						{
@@ -192,7 +203,8 @@ while(CURRENT_STATE !=  FLASH_DONE )
 						}
 						else
 						{
-							TEXT_SIZE -= 8;
+							TEXT_SIZE  -= 8;
+							TextOffest += 8;
 						}
 
 					}
@@ -224,14 +236,14 @@ while(CURRENT_STATE !=  FLASH_DONE )
 						}
 						for (i = 0; i < REM_TEXT_SIZE; i++)
 						{
-							TXFrame->Data_t.WriteSector.Data[i] = DataBuffer[i];
+							TXFrame->Data_t.WriteSector.Data[i] = DataBuffer[i + DataOffest ];
 						}
 					}
 					else
 					{
 						for (i = 0; i < 8; i++)
 						{
-							TXFrame->Data_t.WriteSector.Data[i] = DataBuffer[i];
+							TXFrame->Data_t.WriteSector.Data[i] = DataBuffer[i + DataOffest];
 						}
 					}
 
@@ -248,7 +260,7 @@ while(CURRENT_STATE !=  FLASH_DONE )
 					if (RXFrame->Request_No == REQ_NUMBER&& RXFrame->CMD_No==CURRENT_COMMAND && RXFrame->Result==OK_RESPONSE)
 					{
 						REQ_NUMBER++;
-						DATA_ADDRESS += 0x2;
+						DATA_ADDRESS += 8;
 
 						if (DATA_SIZE == REM_DATA_SIZE)
 						{
@@ -256,7 +268,8 @@ while(CURRENT_STATE !=  FLASH_DONE )
 						}
 						else
 						{
-							DATA_SIZE -= 8;
+							DATA_SIZE  -= 8;
+							DataOffest += 8;
 						}
 					}
 
