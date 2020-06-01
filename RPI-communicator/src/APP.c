@@ -180,8 +180,7 @@ int main(void)
                printf("### ERROR: bytesread != sizeof(RespFrame_t), terminating ###\n");
                DATA_SIZE = 0;
                CURRENT_STATE = FLASH_DONE;
-               state = ERROR_ACK_TIMEDOUT;
-               break;
+               return ERROR_ACK_TIMEDOUT;
             }
          }
 
@@ -247,8 +246,7 @@ int main(void)
                      printf("### ERROR: bytesread != sizeof(RespFrame_t), terminating ###\n");
                      DATA_SIZE = 0;
                      CURRENT_STATE = FLASH_DONE;
-                     state = ERROR_ACK_TIMEDOUT;
-                     break;
+                     return ERROR_ACK_TIMEDOUT;
                   }
                }
 
@@ -323,8 +321,7 @@ int main(void)
                      printf("### ERROR: bytesread != sizeof(RespFrame_t), terminating ###\n");
                      DATA_SIZE = 0;
                      CURRENT_STATE = FLASH_DONE;
-                     state = ERROR_ACK_TIMEDOUT;
-                     break;
+                     return ERROR_ACK_TIMEDOUT;
                   }
                }
                
