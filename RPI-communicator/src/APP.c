@@ -74,7 +74,7 @@ int main(void)
    u8 state = ERROR_SUCCESS;
    
    //open port
-	h1 = serialOpen("/dev/serial0", 9600);
+	h1 = serialOpen("/dev/serial0", 115200);
    
    if (h1 == -1) // if opening the UART handle failed
    {
@@ -377,7 +377,7 @@ void WriteFile(u32 handleUART, void* buffer, u32 length, u32* outWrittenBytes, v
 /* Receive an array from the UART, this blocks untill the entire array is filled */
 void ReadFile(u32 handleUART, void* outBuffer, u32 length, u32* outWrittenBytes, void* outNull)
 {
-   u8 timeoutCtr = 128;
+   u16 timeoutCtr = 0x385; // timeout of ~0.5sec
    u32 i = 0;
    
    // foreach char required
@@ -388,7 +388,7 @@ void ReadFile(u32 handleUART, void* outBuffer, u32 length, u32* outWrittenBytes,
       {
          timeoutCtr--;
          // give CPU some time
-         usleep(5 * 1000); // in microsec
+         usleep(138); // time of each request (8 bytes) / 4 (in microsec)
       }
       
       if (timeoutCtr == 0) // if no data was received during the timeout period
