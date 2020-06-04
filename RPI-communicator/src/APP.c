@@ -38,7 +38,7 @@ u32 REM_TEXT_SIZE;
 u32 InfoBuffer[5];
 
 u8 TextBuffer[1024 * 1024];
-u8 DataBuffer[1024]; //*1024???
+u8 DataBuffer[1024]; 
 
 u8 CURRENT_STATE = INITIAL_STATE;
 u8 CURRENT_FLASH_SECTION = TEXT_SECTION;
@@ -82,7 +82,7 @@ int main(void)
       return ERROR_COULDNT_OPEN_UART;
    }
 
-    /* read data from INFO file */
+   /* read data from INFO , TEXT , DATA files  */
 	void* InfoFilePtr;
 	void* DataFilePtr;
 	void* TextFilePtr;
@@ -99,16 +99,15 @@ int main(void)
 
 	for(i = 0; i < 5; i++)
 	{
-		//fscanf(InfoFilePtr, "%d", &InfoBuffer[i] );
 		printf("InfoBuffer[i] = 0x%X\n", InfoBuffer[i]);
 	}
 	fclose(InfoFilePtr);
 
-	Start_Address = InfoBuffer[0]; //0x08002000;  //0X08002000//InfoBuffer[0]
-	APP_SIZE      = InfoBuffer[1]; // 0x100
-	ENTRY_POINT   = InfoBuffer[2];  // 0X0800210d
-	DATA_ADDRESS  = InfoBuffer[3]; // + 0x2000;// 0X08004000 //
-	DATA_SIZE = InfoBuffer[4] ; // 0x10
+	Start_Address = InfoBuffer[0]; 
+	APP_SIZE      = InfoBuffer[1]; 
+	ENTRY_POINT   = InfoBuffer[2]; 
+	DATA_ADDRESS  = InfoBuffer[3]; 
+	DATA_SIZE     = InfoBuffer[4]; 
 
 	REM_DATA_SIZE = DATA_SIZE % 8;
 	TEXT_SIZE = APP_SIZE - DATA_SIZE;
@@ -134,8 +133,9 @@ int main(void)
 	fread(TextBuffer, 4, TEXT_SIZE, TextFilePtr);
 	fclose(TextFilePtr);
 
-
-   while(CURRENT_STATE != FLASH_DONE)
+   /* TO check if Application size is not suitable break while then print error and terminate 
+      or TO check if CURRENT_STATE == FLASH_DONE  break while and terminate */
+   while(CURRENT_STATE != FLASH_DONE  && RXFrame->Result != APP_SIZE_NOT_SUITABLE_RESPONSE)
    {      
       switch (CURRENT_STATE) 
       {
@@ -168,11 +168,13 @@ int main(void)
          PRINT_LOADING();
          
          //send data over UART
-         WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
+         //WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
 
-         //check bytesread flag??
-         while (RXFrame->Result == NOK_RESPONSE)
+         /* check if response is not ok send the frame again and receive ack again */
+         while (RXFrame->Result == NOK_RESPONSE) //we should test this case 
          {
+            WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
+
             ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
             
             if (bytesread != sizeof(RespFrame_t))
@@ -234,11 +236,13 @@ int main(void)
                PRINT_LOADING();
          
                //send data over UART
-               WriteFile(h1, TXFrame, sizeof(ReqDateFrame_t), &byteswritten, NULL);
+               //WriteFile(h1, TXFrame, sizeof(ReqDateFrame_t), &byteswritten, NULL);
 
-               //check bytesread flag??
-               while (RXFrame->Result == NOK_RESPONSE)
+               /* check if response is not ok send the frame again and receive ack again */
+               while (RXFrame->Result == NOK_RESPONSE) //we should test this case 
                {
+                  WriteFile(h1, TXFrame, sizeof(ReqDateFrame_t), &byteswritten, NULL);
+
                   ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
                   
                   if (bytesread != sizeof(RespFrame_t))
@@ -309,11 +313,13 @@ int main(void)
                PRINT_LOADING();
          
                //send data over UART
-               WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
+               //WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
 
-               //check bytesread flag??
-               while (RXFrame->Result == NOK_RESPONSE)
+               /* check if response is not ok send the frame again and receive ack again */
+               while (RXFrame->Result == NOK_RESPONSE) //we should test this case 
                {
+                  WriteFile(h1, TXFrame , sizeof(ReqDateFrame_t) , &byteswritten, NULL);
+
                   ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
                   
                   if (bytesread != sizeof(RespFrame_t))
@@ -346,14 +352,22 @@ int main(void)
             } //end of while
             
             CURRENT_FLASH_SECTION = FLASH_DONE;
-            CURRENT_STATE = FLASH_DONE;
+            CURRENT_STATE = FLASH_DONE;//will break the while 
          }
       break;
 
+      /* should be removed as it is useless 
       case FLASH_DONE:
+      break; 
+      */
 
-      break;
       }
+   }
+
+   /* TO check if Application size is not suitable termiate and print error */
+   if (RXFrame->Result == APP_SIZE_NOT_SUITABLE_RESPONSE) 
+   {
+      printf("### ERROR: RXFrame->Result == APP_SIZE_NOT_SUITABLE_RESPONSE , terminating ###\n");
    }
 
    //close UART Port
