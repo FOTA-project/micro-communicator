@@ -1,16 +1,19 @@
 /* includes */
-#include <stdio.h>          // printf
+#include <stdio.h>          // printf, fopen, ...
 #include <unistd.h>         // delay
 #include <wiringSerial.h>   // serial
 #include "STD_TYPES.h"
 #include "protocol.h"
 
-#define ERROR_SUCCESS                0
-#define ERROR_COULDNT_OPEN_UART      -1
-#define ERROR_COULDNT_OPEN_INFO_FILE -2
-#define ERROR_COULDNT_OPEN_DATA_FILE -3
-#define ERROR_COULDNT_OPEN_TEXT_FILE -4
-#define ERROR_ACK_TIMEDOUT           -5
+#define ERROR_SUCCESS                   0
+#define ERROR_COULDNT_OPEN_UART        -1
+#define ERROR_COULDNT_OPEN_INFO_FILE   -2
+#define ERROR_COULDNT_OPEN_DATA_FILE   -3
+#define ERROR_COULDNT_OPEN_TEXT_FILE   -4
+#define ERROR_COULDNT_OPEN_INSTRUCTIONS_FILE -5
+#define ERROR_COULDNT_OPEN_PROGRESS_FILE  -6
+#define ERROR_ACK_TIMEDOUT            -7
+#define ERROR_APP_SIZE_LARGE          -8
 
 /* flashing state (used in switch) */
 #define INITIAL_STATE     0
@@ -23,6 +26,15 @@
 #define LOADING_STRING    "#"
 #define PRINT_LOADING()   printf(LOADING_STRING); \
                           fflush(stdout)
+
+// python script instructions
+#define INSTRUCTION_GET_PROGRESS_FLAG     -1
+#define INSTRUCTION_COMM_TIMEOUT          -2
+#define INSTRUCTION_TERMINATE_ON_SUCCESS  -3
+#define INSTRUCTION_WRITE_MAX_REQUESTS    -4
+#define INSTRUCTION_GET_PROGRESS_FLAG_ARB -5
+
+#define PROGRESS_DELAY_CTR_MAX            30
 
 
 /* global variables */
@@ -43,11 +55,17 @@ u8 DataBuffer[1024];
 u8 CURRENT_STATE = INITIAL_STATE;
 u8 CURRENT_FLASH_SECTION = TEXT_SECTION;
 
-u16 REQ_NUMBER = 1;
+u16 REQ_NUMBER = 0;
 u16 CURRENT_COMMAND;
 
 u32 TextOffest;
 u32 DataOffest;
+
+u8 failCtr;
+
+u32 maxRequests;
+u32 skipRequestNo;
+u8 progressDelayCtr;
 
 static u8 RxFrameBuffer [sizeof (ReqDateFrame_t)] ;
 ReqDateFrame_t * TXFrame = (ReqDateFrame_t *) RxFrameBuffer;
@@ -71,7 +89,10 @@ int main(void)
 	u32 h1;
 	u32 byteswritten = 0, bytesread = 0;
    
-   u8 state = ERROR_SUCCESS;
+   s8 state = ERROR_SUCCESS;
+   
+   failCtr = 0;
+   progressDelayCtr = PROGRESS_DELAY_CTR_MAX;
    
    //open port
 	h1 = serialOpen("/dev/serial0", 115200);
@@ -83,9 +104,12 @@ int main(void)
    }
 
    /* read data from INFO , TEXT , DATA files  */
-	void* InfoFilePtr;
-	void* DataFilePtr;
-	void* TextFilePtr;
+	FILE* InfoFilePtr;
+	FILE* DataFilePtr;
+	FILE* TextFilePtr;
+   FILE* progressInstructionFile;
+   FILE* lastProgressFile;
+
 
 	InfoFilePtr = fopen("INFO_FILE.txt", "rb");
    
@@ -99,7 +123,7 @@ int main(void)
 
 	for(i = 0; i < 5; i++)
 	{
-		printf("InfoBuffer[i] = 0x%X\n", InfoBuffer[i]);
+		printf("InfoBuffer[%d] = 0x%X\n", i, InfoBuffer[i]);
 	}
 	fclose(InfoFilePtr);
 
@@ -112,6 +136,8 @@ int main(void)
 	REM_DATA_SIZE = DATA_SIZE % 8;
 	TEXT_SIZE = APP_SIZE - DATA_SIZE;
 	REM_TEXT_SIZE = TEXT_SIZE % 8;
+   
+   maxRequests = (APP_SIZE + 8 - (APP_SIZE % 8)) / 8;
 
 	DataFilePtr = fopen("DATA_FILE.txt", "rb");
    if (DataFilePtr == NULL)
@@ -133,10 +159,55 @@ int main(void)
 	fread(TextBuffer, 4, TEXT_SIZE, TextFilePtr);
 	fclose(TextFilePtr);
 
+   progressInstructionFile = fopen("progress.txt", "w+");
+   if (progressInstructionFile == NULL)
+   {
+      printf("### ERROR: couldn't open progress.txt ###\n");
+      return ERROR_COULDNT_OPEN_INSTRUCTIONS_FILE;
+   }
+   
+   lastProgressFile = fopen("last-progress.txt", "w+");
+   if (lastProgressFile == NULL)
+   {
+      printf("### ERROR: couldn't open last-progress.txt ###\n");
+      return ERROR_COULDNT_OPEN_PROGRESS_FILE;
+   }
+   
+   fseek(progressInstructionFile, 0, SEEK_SET);
+   
+   // write max requests to server
+   fprintf(progressInstructionFile, "%d %d\n", INSTRUCTION_WRITE_MAX_REQUESTS, 
+                                               maxRequests);
+   fflush(progressInstructionFile);
+   
+   // request the previous elf progress
+   fprintf(progressInstructionFile, "%d\n", INSTRUCTION_GET_PROGRESS_FLAG);
+   fflush(progressInstructionFile);
+   
+   // write the arbitrary value
+   fseek(lastProgressFile, 0, SEEK_SET);
+   fprintf(lastProgressFile, "%d\n", INSTRUCTION_GET_PROGRESS_FLAG_ARB);
+   
+   // get number of requests to skip
+   do
+   {
+      fflush(lastProgressFile); // In some implementations, flushing a stream open for reading causes its input buffer to be cleared
+      fseek(lastProgressFile, 0, SEEK_SET);
+      fscanf(lastProgressFile, "%d", &skipRequestNo);
+      //printf("skipRequestNo = %d\n", skipRequestNo);
+      usleep(100 * 1000); // 100 ms
+   } while (skipRequestNo == INSTRUCTION_GET_PROGRESS_FLAG_ARB);
+   
+   //printf("after loop currentRequestNo = %d\n", skipRequestNo);
+   //return 0;
+   
+   //fseek(progressInstructionFile, 3, SEEK_SET);
+   
+   
    /* TO check if Application size is not suitable break while then print error and terminate 
       or TO check if CURRENT_STATE == FLASH_DONE  break while and terminate */
-   while(CURRENT_STATE != FLASH_DONE  && RXFrame->Result != APP_SIZE_NOT_SUITABLE_RESPONSE)
-   {      
+   while((CURRENT_STATE != FLASH_DONE) && (RXFrame->Result != APP_SIZE_NOT_SUITABLE_RESPONSE))
+   {
       switch (CURRENT_STATE) 
       {
       case INITIAL_STATE:
@@ -177,12 +248,29 @@ int main(void)
 
             ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
             
+            if (RXFrame->Result == NOK_RESPONSE)
+            {
+               failCtr++;
+            }
+            else
+            {
+               failCtr = 0;
+            }
+            
+            if (failCtr == 10)
+            {
+               printf("### ERROR: failed to send FLASH_NEW_APP request %d times ###\n", failCtr);
+               CURRENT_STATE = FLASH_DONE;
+               state = ERROR_ACK_TIMEDOUT;
+               break;
+            }
+            
             if (bytesread != sizeof(RespFrame_t))
             {
                printf("### ERROR: bytesread != sizeof(RespFrame_t), terminating ###\n");
-               DATA_SIZE = 0;
                CURRENT_STATE = FLASH_DONE;
-               return ERROR_ACK_TIMEDOUT;
+               state = ERROR_ACK_TIMEDOUT;
+               break;
             }
          }
 
@@ -194,7 +282,6 @@ int main(void)
             CURRENT_STATE = WRITING_SECTOR;
             REQ_NUMBER++;
          }
-
       break;
 
       case WRITING_SECTOR:
@@ -202,6 +289,26 @@ int main(void)
          {
             while (TEXT_SIZE != 0)
             {
+               if (skipRequestNo != 0)
+               {
+                  skipRequestNo--;
+                  
+                  REQ_NUMBER++;
+                  Start_Address += 8;
+
+                  if (TEXT_SIZE == REM_TEXT_SIZE)
+                  {
+                     TEXT_SIZE = 0;
+                  }
+                  else
+                  {
+                     TEXT_SIZE  -= 8;
+                     TextOffest += 8;
+                  }
+                  
+                  continue;
+               }
+               
                RXFrame->Result = NOK_RESPONSE;
                CURRENT_COMMAND = Cmd_WriteSector;
 
@@ -245,18 +352,37 @@ int main(void)
 
                   ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
                   
+                  if (RXFrame->Result == NOK_RESPONSE)
+                  {
+                     failCtr++;
+                  }
+                  else
+                  {
+                     failCtr = 0;
+                  }
+                  
+                  if (failCtr == 10)
+                  {
+                     printf("### ERROR: failed to send TEXT_SECTION request %d times ###\n", failCtr);
+                     TEXT_SIZE = 0;
+                     CURRENT_STATE = FLASH_DONE;
+                     state = ERROR_ACK_TIMEDOUT;
+                     break;
+                  }
+                  
                   if (bytesread != sizeof(RespFrame_t))
                   {
                      printf("### ERROR: bytesread != sizeof(RespFrame_t), terminating ###\n");
-                     DATA_SIZE = 0;
+                     TEXT_SIZE = 0;
                      CURRENT_STATE = FLASH_DONE;
-                     return ERROR_ACK_TIMEDOUT;
+                     state = ERROR_ACK_TIMEDOUT;
+                     break;
                   }
                }
 
                if ( (RXFrame->Request_No == REQ_NUMBER) &&
                     (RXFrame->CMD_No == CURRENT_COMMAND) &&
-                    (RXFrame->Result==OK_RESPONSE) )
+                    (RXFrame->Result == OK_RESPONSE) )
                {
                   REQ_NUMBER++;
                   Start_Address += 8;
@@ -270,9 +396,16 @@ int main(void)
                      TEXT_SIZE  -= 8;
                      TextOffest += 8;
                   }
-
+                  
+                  progressDelayCtr--;
+                  
+                  if (progressDelayCtr == 0)
+                  {
+                     progressDelayCtr = PROGRESS_DELAY_CTR_MAX;
+                     fprintf(progressInstructionFile, "%d\n", REQ_NUMBER - 1);
+                     fflush(progressInstructionFile);
+                  }
                }
-
             } //end of while
 
             CURRENT_FLASH_SECTION = DATA_SECTION;
@@ -281,6 +414,25 @@ int main(void)
          {
             while (DATA_SIZE != 0)
             {
+               if (skipRequestNo != 0)
+               {
+                  skipRequestNo--;
+                  
+                  REQ_NUMBER++;
+                  DATA_ADDRESS += 8;
+
+                  if (DATA_SIZE == REM_DATA_SIZE)
+                  {
+                     DATA_SIZE = 0;
+                  }
+                  else
+                  {
+                     DATA_SIZE  -= 8;
+                     DataOffest += 8;
+                  }
+                  
+                  continue;
+               }
                RXFrame->Result = NOK_RESPONSE;
                CURRENT_COMMAND = Cmd_WriteSector;
                
@@ -322,12 +474,31 @@ int main(void)
 
                   ReadFile(h1, RXFrame, sizeof(RespFrame_t), &bytesread, NULL);
                   
+                  if (RXFrame->Result == NOK_RESPONSE)
+                  {
+                     failCtr++;
+                  }
+                  else
+                  {
+                     failCtr = 0;
+                  }
+                  
+                  if (failCtr == 10)
+                  {
+                     printf("### ERROR: failed to send DATA_SECTION request %d times ###\n", failCtr);
+                     DATA_SIZE = 0;
+                     CURRENT_STATE = FLASH_DONE;
+                     state = ERROR_ACK_TIMEDOUT;
+                     break;
+                  }
+                  
                   if (bytesread != sizeof(RespFrame_t))
                   {
                      printf("### ERROR: bytesread != sizeof(RespFrame_t), terminating ###\n");
                      DATA_SIZE = 0;
                      CURRENT_STATE = FLASH_DONE;
-                     return ERROR_ACK_TIMEDOUT;
+                     state = ERROR_ACK_TIMEDOUT;
+                     break;
                   }
                }
                
@@ -348,11 +519,21 @@ int main(void)
                      DATA_SIZE  -= 8;
                      DataOffest += 8;
                   }
+                  
+                  progressDelayCtr--;
+                  
+                  if (progressDelayCtr == 0)
+                  {
+                     progressDelayCtr = PROGRESS_DELAY_CTR_MAX;
+                     
+                     fprintf(progressInstructionFile, "%d\n", REQ_NUMBER - 1);
+                     fflush(progressInstructionFile);
+                  }
                }
             } //end of while
             
             CURRENT_FLASH_SECTION = FLASH_DONE;
-            CURRENT_STATE = FLASH_DONE;//will break the while 
+            CURRENT_STATE = FLASH_DONE; //will break the while 
          }
       break;
 
@@ -368,10 +549,25 @@ int main(void)
    if (RXFrame->Result == APP_SIZE_NOT_SUITABLE_RESPONSE) 
    {
       printf("### ERROR: RXFrame->Result == APP_SIZE_NOT_SUITABLE_RESPONSE , terminating ###\n");
+      state = ERROR_APP_SIZE_LARGE;
    }
 
+   fprintf(progressInstructionFile, "%d\n", REQ_NUMBER - 1);
+   fflush(progressInstructionFile);
+   
+   // terminate the .py script
+   fprintf(progressInstructionFile, "%d\n", INSTRUCTION_TERMINATE_ON_SUCCESS);
+   fflush(progressInstructionFile);
+              
    //close UART Port
 	serialClose(h1);
+   
+   //fclose(progressInstructionFile);
+   //fclose(InfoFilePtr);
+   //fclose(DataFilePtr);
+   //fclose(TextFilePtr);
+       
+   printf("final state = %d\n", state);
    
    return state;
 }
