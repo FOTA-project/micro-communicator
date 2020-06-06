@@ -47,7 +47,7 @@ while isTerminate == 0:
     #print("line = %s\n" %(line))
     
     if line == '':
-        time.sleep(0.000001 * 500) # 100 us
+        time.sleep(0.001 * 50) # 50ms
         #print("line is empty")
         #progressInstructionFile.seek(-len(prevLine), 2)
         continue
