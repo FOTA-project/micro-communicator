@@ -137,7 +137,7 @@ int main(void)
 	TEXT_SIZE = APP_SIZE - DATA_SIZE;
 	REM_TEXT_SIZE = TEXT_SIZE % 8;
    
-   maxRequests = (APP_SIZE + 8 - (APP_SIZE % 8)) / 8;
+   maxRequests = (APP_SIZE + 8 - (APP_SIZE % 8)) / 8; // round up to nearest multiple of 8
 
 	DataFilePtr = fopen("DATA_FILE.txt", "rb");
    if (DataFilePtr == NULL)
@@ -198,11 +198,9 @@ int main(void)
       usleep(100 * 1000); // 100 ms
    } while (skipRequestNo == INSTRUCTION_GET_PROGRESS_FLAG_ARB);
    
-   //printf("after loop currentRequestNo = %d\n", skipRequestNo);
-   //return 0;
+   skipRequestNo -= skipRequestNo % 128; // round down to nearest multiple of 128 (nearest 1KB page)
    
-   //fseek(progressInstructionFile, 3, SEEK_SET);
-   
+   APP_SIZE -= skipRequestNo * 8; // remove the amount of already-flashed requests (each request = 8 bytes)
    
    /* TO check if Application size is not suitable break while then print error and terminate 
       or TO check if CURRENT_STATE == FLASH_DONE  break while and terminate */
@@ -567,7 +565,7 @@ int main(void)
    //fclose(DataFilePtr);
    //fclose(TextFilePtr);
        
-   printf("final state = %d\n", state);
+   printf("\n\nFinal state = %d\n", state);
    
    return state;
 }
