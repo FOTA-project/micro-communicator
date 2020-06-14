@@ -24,8 +24,10 @@
 #define DATA_SECTION      1
 
 #define LOADING_STRING    "#"
-#define PRINT_LOADING()   printf(LOADING_STRING); \
-                          fflush(stdout)
+//#define PRINT_LOADING()   printf(LOADING_STRING); \
+//                          fflush(stdout)
+#define PRINT_LOADING()
+
 
 // python script instructions
 #define INSTRUCTION_GET_PROGRESS_FLAG     -1
@@ -34,7 +36,7 @@
 #define INSTRUCTION_WRITE_MAX_REQUESTS    -4
 #define INSTRUCTION_GET_PROGRESS_FLAG_ARB -5
 
-#define PROGRESS_DELAY_CTR_MAX            30
+#define PROGRESS_DELAY_CTR_MAX            75
 
 
 /* global variables */
